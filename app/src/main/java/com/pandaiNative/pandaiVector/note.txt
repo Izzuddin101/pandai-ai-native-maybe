@@ -1,0 +1,6 @@
+**
+The objectbox db was directly copied from bg Djaka's react-native repo. Might run into
+some issues.
+
+The parquet_embeds is in src/res/raw as that's the proper way of storing
+raw assets in android.
