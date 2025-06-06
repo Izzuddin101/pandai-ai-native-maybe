@@ -1,14 +1,12 @@
 package org.pandai.ai.services
 
-import org.koin.core.module.Module
-import org.koin.core.module.dsl.singleOf
-import org.koin.dsl.module
+import org.koin.core.annotation.ComponentScan
+import org.koin.core.annotation.Module
+import org.koin.core.annotation.Single
 
-actual fun platformModule(): List<Module> = listOf(
-    module {
-        singleOf<PandaiAIChat>(::PandaiAIChatNoOp)
-    }
-)
-
-@org.koin.core.annotation.Module
-actual class NativeModule actual constructor()
+@Module
+@ComponentScan("org.pandai.ai")
+actual class NativeModule actual constructor() {
+    @Single
+    fun provideAIChat(): PandaiAIChat = PandaiAIChatNoOp()
+}

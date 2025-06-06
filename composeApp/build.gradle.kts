@@ -149,12 +149,5 @@ project.tasks.withType(KotlinCompilationTask::class.java).configureEach {
     }
 }
 
-// Workaround for KSP2 Bu
-tasks {
-    configureEach {
-        if (this.name.contains("kspDebugKotlinAndroid")) {
-            this.dependsOn("kspCommonMainKotlinMetadata")
-        }
-    }
-}
+
 
