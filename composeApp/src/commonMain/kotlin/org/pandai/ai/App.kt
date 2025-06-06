@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import org.jetbrains.compose.ui.tooling.preview.Preview
+import org.pandai.ai.features.chat.ChatScreen
 import org.pandai.ai.features.home.HomeScreen
 import org.pandai.ai.features.rag_demo.RagDemoScreen
 
@@ -15,8 +16,15 @@ fun App() {
     val navController = rememberNavController()
     MaterialTheme {
         NavHost(navController = navController, startDestination = HomeScreen) {
-            composable<HomeScreen> { HomeScreen { navController.navigate(RagDemoScreen) } }
+            composable<HomeScreen> {
+                HomeScreen(onNavigateToRagDemo = {
+                    navController.navigate(
+                        RagDemoScreen
+                    )
+                }, onNavigateToChat = { navController.navigate(ChatScreen("")) })
+            }
             composable<RagDemoScreen> { RagDemoScreen() }
+            composable<ChatScreen> { ChatScreen() }
         }
     }
 }

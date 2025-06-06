@@ -6,8 +6,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,9 +14,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -31,16 +26,23 @@ import org.pandai.ai.ui.PandaiTheme
 class ChatViewModel(
     private val chatService: PandaiAIChat
 ) : ViewModel() {
-    private val _state = MutableStateFlow(ChatState())
-    val state: StateFlow<ChatState> = _state.asStateFlow()
+    var state by mutableStateOf(ChatState())
+
+    init {
+        viewModelScope.launch {
+            state = state.copy(isLoading = true)
+            chatService.init()
+            state = state.copy(isLoading = false)
+        }
+    }
 
     fun sendMessage(message: String) {
         if (message.isBlank()) return
         
         viewModelScope.launch {
             // Add user message
-            _state.value = _state.value.copy(
-                messages = _state.value.messages + Message(
+            state = state.copy(
+                messages = state.messages + Message(
                     content = message,
                     isUser = true
                 ),
@@ -48,9 +50,10 @@ class ChatViewModel(
             )
 
             // Get AI response
+            val lastMessages = state.messages
             chatService.sendMessage(message).collect { result ->
-                _state.value = _state.value.copy(
-                    messages = _state.value.messages + Message(
+                state = state.copy(
+                    messages = lastMessages + Message(
                         content = result.message ?: "No response",
                         isUser = false
                     ),
@@ -80,9 +83,8 @@ data class ChatScreen(
 @Composable
 fun ChatScreen() {
     val viewModel: ChatViewModel = koinViewModel()
-    val state by viewModel.state.collectAsState()
     ChatScreenContent(
-        state = state,
+        state = viewModel.state,
         onSendMessage = viewModel::sendMessage
     )
 }
@@ -183,10 +185,7 @@ fun ChatInput(
             onClick = onSendMessage,
             enabled = messageText.isNotBlank() && !isLoading
         ) {
-            Icon(
-                imageVector = Icons.Default.Send,
-                contentDescription = "Send message"
-            )
+//            Icon
         }
     }
 }
@@ -243,7 +242,7 @@ fun LoadingIndicator() {
     }
 }
 
-@Preview()
+@Preview
 @Composable
 fun ChatScreenPreview() {
     PandaiTheme {

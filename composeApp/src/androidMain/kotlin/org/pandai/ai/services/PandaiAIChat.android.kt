@@ -1,5 +1,6 @@
 package org.pandai.ai.services
 
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import org.koin.core.annotation.Single
@@ -17,7 +18,9 @@ class PandaiAIChatImpl(
         var data = MessageResult()
 
         data = data.copy(context = answer)
-        trySend(data)
+        send(data)
+
+        awaitClose()
     }
 
 }
