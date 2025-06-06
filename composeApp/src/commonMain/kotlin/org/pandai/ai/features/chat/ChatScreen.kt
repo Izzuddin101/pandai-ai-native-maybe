@@ -1,16 +1,22 @@
 package org.pandai.ai.features.chat
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -38,7 +44,7 @@ class ChatViewModel(
 
     fun sendMessage(message: String) {
         if (message.isBlank()) return
-        
+
         viewModelScope.launch {
             // Add user message
             state = state.copy(
@@ -54,8 +60,9 @@ class ChatViewModel(
             chatService.sendMessage(message).collect { result ->
                 state = state.copy(
                     messages = lastMessages + Message(
-                        content = result.message ?: "No response",
-                        isUser = false
+                        content = result.message ?: "...",
+                        isUser = false,
+                        context = result.context
                     ),
                     isLoading = false
                 )
@@ -71,7 +78,8 @@ data class ChatState(
 
 data class Message(
     val content: String,
-    val isUser: Boolean
+    val isUser: Boolean,
+    val context: String? = null
 )
 
 @Serializable
@@ -185,18 +193,25 @@ fun ChatInput(
             onClick = onSendMessage,
             enabled = messageText.isNotBlank() && !isLoading
         ) {
-//            Icon
+            Icon(Icons.AutoMirrored.Filled.Send, "Send")
         }
     }
 }
 
 @Composable
 fun MessageBubble(message: Message) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.isUser) Arrangement.End else Arrangement.Start
+    val textColor = if (message.isUser) MaterialTheme.colorScheme.onPrimary
+        else MaterialTheme.colorScheme.onSecondaryContainer
+    var isExpanded by remember { mutableStateOf(false) }
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .clip(
                     RoundedCornerShape(
@@ -210,13 +225,44 @@ fun MessageBubble(message: Message) {
                     if (message.isUser) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.secondaryContainer
                 )
-                .padding(12.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 text = message.content,
-                color = if (message.isUser) MaterialTheme.colorScheme.onPrimary
-                else MaterialTheme.colorScheme.onSecondaryContainer
+                color = textColor
             )
+
+            val isHadContext = !message.context.isNullOrBlank()
+            if (isHadContext) {
+                Divider(
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .width(100.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                Text(
+                    text = message.context.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = textColor.copy(alpha = 0.5f),
+                    modifier = Modifier.animateContentSize().heightIn(max = if (isExpanded) Dp.Unspecified else 64.dp),
+                    onTextLayout = { textLayoutResult = it }
+                )
+                
+                if (textLayoutResult?.hasVisualOverflow == true || isExpanded) {
+                    TextButton(
+                        onClick = { isExpanded = !isExpanded },
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isExpanded) "Show Less" else "See More",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = textColor.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -249,9 +295,10 @@ fun ChatScreenPreview() {
         ChatScreenContent(
             state = ChatState(
                 messages = listOf(
-                    Message("Hello!", true),
-                    Message("Hi there! How can I help you today?", false),
-                    Message("I have a question about the app.", true)
+                    Message("Hello!", true, "User"),
+                    Message("Hi there! How can I help you today?", false, "AI Assistant"),
+                    Message("I have a question about the app.", true, null),
+                    Message("Sure, what would you like to know?", false, "AI Assistant")
                 ),
                 isLoading = false
             ),
@@ -267,9 +314,9 @@ fun ChatScreenLoadingPreview() {
         ChatScreenContent(
             state = ChatState(
                 messages = listOf(
-                    Message("Hello!", true),
-                    Message("Hi there! How can I help you today?", false),
-                    Message("I have a question about the app.", true)
+                    Message("Hello!", true, "User"),
+                    Message("Hi there! How can I help you today?", false, "AI Assistant"),
+                    Message("I have a question about the app.", true, null)
                 ),
                 isLoading = true
             ),
@@ -286,8 +333,18 @@ fun MessageBubblePreview() {
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MessageBubble(Message("This is a user message", true))
-            MessageBubble(Message("This is an AI response", false))
+            MessageBubble(Message("This is a user message", true, "User"))
+            MessageBubble(
+                Message(
+                    "This is an AI response",
+                    false,
+                    "AI Assistant\nThis is a longer context that will definitely exceed three lines of text.\n" +
+                    "It contains multiple sentences and should demonstrate the height-based truncation.\n" +
+                    "The text will be cut off after approximately three lines worth of height.\n" +
+                    "This line should only be visible when expanded."
+                )
+            )
+            MessageBubble(Message("This is a message without context", true, null))
         }
     }
 }

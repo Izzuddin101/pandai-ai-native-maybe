@@ -43,11 +43,13 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.objectbox.kotlin)
             implementation(libs.objectbox.android)
+            implementation(libs.androidx.datastore.preferences)
 
             // Implement sentence-embedding.aar and other files from libs
             implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
             implementation(libs.onnxruntime.android)
             implementation(libs.koin.android)
+            implementation(libs.ktor.client.okhttp)
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -62,14 +64,26 @@ kotlin {
             implementation(libs.kotlin.result)
             implementation(libs.kotlin.result.coroutines)
             implementation(libs.androidx.navigation)
+            implementation(libs.material.icon)
             implementation(libs.koin.core)
             implementation(libs.koin.compose)
             implementation(libs.koin.compose.viewmodel)
             api(libs.koin.annotations)
+            implementation(libs.okio)
+            implementation(libs.kermit)
+            implementation(libs.androidx.datastore.preferences)
+
+            implementation(libs.ktor.client.core)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutines.swing)
+        }
+        iosMain.dependencies {
+            implementation(libs.ktor.client.darwin)
+        }
+        commonTest.dependencies {
+            implementation(libs.okio.fakefilesystem)
         }
     }
 

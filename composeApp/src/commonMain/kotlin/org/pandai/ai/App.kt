@@ -8,6 +8,7 @@ import androidx.navigation.compose.rememberNavController
 import org.jetbrains.compose.ui.tooling.preview.Preview
 import org.pandai.ai.features.chat.ChatScreen
 import org.pandai.ai.features.home.HomeScreen
+import org.pandai.ai.features.llm_choose.LLMChooseScreen
 import org.pandai.ai.features.rag_demo.RagDemoScreen
 
 @Composable
@@ -21,10 +22,15 @@ fun App() {
                     navController.navigate(
                         RagDemoScreen
                     )
-                }, onNavigateToChat = { navController.navigate(ChatScreen("")) })
+                }, onNavigateToChat = { navController.navigate(LLMChooseScreen) })
             }
             composable<RagDemoScreen> { RagDemoScreen() }
             composable<ChatScreen> { ChatScreen() }
+            composable<LLMChooseScreen> {
+                LLMChooseScreen {
+                    navController.navigate(ChatScreen(it))
+                }
+            }
         }
     }
 }

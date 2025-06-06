@@ -171,11 +171,11 @@ class RagService(
             // Format the results to include scores
             val formattedResults = retrievalResult.matches.mapIndexed { index, match ->
                 val scoreFormatted = "%.4f".format(match.similarityScore)
-                "no${index + 1}. $scoreFormatted\n${match.content}"
+                "${index + 1}. $scoreFormatted\n${match.content}"
             }.joinToString("\n\n")
 
             return@withContext if (retrievalResult.matches.isNotEmpty()) {
-                "Results for \"${retrievalResult.query}\":\n\n$formattedResults"
+                formattedResults
             } else {
                 "I don't have enough information to answer your question about \"${retrievalResult.query}\""
             }
