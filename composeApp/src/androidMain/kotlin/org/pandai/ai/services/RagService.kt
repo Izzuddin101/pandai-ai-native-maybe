@@ -28,11 +28,13 @@ class RagService(
     private val context: Context,
 ) {
     private val sentenceEmbedding = SentenceEmbedding()
+    private var isInitialized = false
 
     /**
      * Initialize the RAG system. Must be called before using other methods.
      */
     suspend fun initialize() = withContext(Dispatchers.IO) {
+        if (isInitialized) return@withContext
         runCatching {
             // Get model configuration from ModelConfig.kt
             val modelConfig = getModelConfig(Model.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2)
@@ -120,6 +122,8 @@ class RagService(
         }.onFailure { e ->
             Log.e("RagManager", "Error in initialize: ${e.message}", e)
         }.getOrThrow()
+
+        isInitialized = true
     }
 
     /**

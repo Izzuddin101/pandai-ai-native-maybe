@@ -1,7 +1,6 @@
 package org.pandai.ai.features.rag_demo
 
 import android.util.Log
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +24,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,16 +37,96 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.CoroutineScope
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
-import org.koin.core.component.KoinComponent
-import org.koin.core.component.inject
+import org.koin.android.annotation.KoinViewModel
+import org.koin.compose.viewmodel.koinViewModel
 import org.pandai.ai.services.RagService
 import org.pandai.ai.ui.PandaiTheme
 
-private class State(scope: CoroutineScope) : KoinComponent {
-    val ragManager: RagService by inject()
 
+@KoinViewModel
+class RagViewModel(
+    private val ragManager: RagService
+) : ViewModel() {
+    val state = RagState()
+
+    fun init() {
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e("MainActivity", "Uncaught exception: ${throwable.message}", throwable)
+            state.answerState.value =
+                "App crashed: ${throwable.message}\n${throwable.stackTraceToString()}"
+        }
+
+        // Initialize RAG Manager
+        try {
+            // Initialize the RAG system asynchronously
+            viewModelScope.launch {
+                state.isLoadingState.value = true
+                try {
+                    ragManager.initialize()
+                    state.isInitializedState.value = true
+                } catch (e: Exception) {
+                    // Log the error and display it to help with debugging
+                    Log.e("MainActivity", "Error initializing RAG system: ${e.message}", e)
+                    state.answerState.value =
+                        "Error initializing: ${e.message}\n${e.stackTraceToString()}"
+                } finally {
+                    state.isLoadingState.value = false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error creating RagManager: ${e.message}", e)
+            state.answerState.value =
+                "Failed to create RagManager: ${e.message}\n${e.stackTraceToString()}"
+        }
+    }
+
+    suspend fun processQuery(): Pair<String, FloatArray> {
+        val query = state.queryState.value
+        if (state.isInitializedState.value && !state.isLoadingState.value && query.isNotBlank()) {
+            state.isLoadingState.value = true
+            try {
+                val (answer, embedding) = ragManager.processQuery(query)
+                state.answerState.value = answer
+                state.embeddingState.value = embedding
+            } catch (e: Exception) {
+                state.answerState.value =
+                    "Error processing query: ${e.message}"
+            } finally {
+                state.isLoadingState.value = false
+            }
+        }
+        return ragManager.processQuery(state.queryState.value)
+    }
+
+    suspend fun calculateSimilarity() {
+        val sentence1 = state.sentence1State.value
+        val sentence2 = state.sentence2State.value
+        if (state.isInitializedState.value && !state.isLoadingState.value &&
+            sentence1.isNotBlank() && sentence2.isNotBlank()
+        ) {
+            state.isSimilarityCheckingState.value = true
+            state.isLoadingState.value = true
+            try {
+                val score = ragManager.calculateSimilarity(sentence1, sentence2)
+                state.similarityScoreState.value = score
+            } catch (e: Exception) {
+                Log.e(
+                    "MainActivity",
+                    "Error calculating similarity: ${e.message}",
+                    e
+                )
+            } finally {
+                state.isSimilarityCheckingState.value = false
+                state.isLoadingState.value = false
+            }
+        }
+    }
+}
+
+class RagState {
     val isInitializedState = mutableStateOf(false)
     val isLoadingState = mutableStateOf(false)
     val queryState = mutableStateOf("")
@@ -58,45 +138,17 @@ private class State(scope: CoroutineScope) : KoinComponent {
     val sentence2State = mutableStateOf("")
     val similarityScoreState = mutableStateOf<Float?>(null)
     val isSimilarityCheckingState = mutableStateOf(false)
-
-    init {
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            Log.e("MainActivity", "Uncaught exception: ${throwable.message}", throwable)
-            answerState.value =
-                "App crashed: ${throwable.message}\n${throwable.stackTraceToString()}"
-        }
-
-        // Initialize RAG Manager
-        try {
-            // Initialize the RAG system asynchronously
-            scope.launch {
-                isLoadingState.value = true
-                try {
-                    ragManager.initialize()
-                    isInitializedState.value = true
-                } catch (e: Exception) {
-                    // Log the error and display it to help with debugging
-                    Log.e("MainActivity", "Error initializing RAG system: ${e.message}", e)
-                    answerState.value =
-                        "Error initializing: ${e.message}\n${e.stackTraceToString()}"
-                } finally {
-                    isLoadingState.value = false
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error creating RagManager: ${e.message}", e)
-            answerState.value =
-                "Failed to create RagManager: ${e.message}\n${e.stackTraceToString()}"
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 actual fun RagDemoScreen() {
     val scope = rememberCoroutineScope()
-    val state = remember { State(scope) }
-    val ragManager = state.ragManager
+
+    val viewModel: RagViewModel = koinViewModel()
+    LaunchedEffect(viewModel) { viewModel.init() }
+
+    val state = viewModel.state
     val isInitializedState = state.isInitializedState
     val isLoadingState = state.isLoadingState
     val queryState = state.queryState
@@ -105,7 +157,6 @@ actual fun RagDemoScreen() {
     val sentence1State = state.sentence1State
     val sentence2State = state.sentence2State
     val similarityScoreState = state.similarityScoreState
-    val isSimilarityCheckingState = state.isSimilarityCheckingState
 
     PandaiTheme {
         Scaffold(
@@ -146,21 +197,7 @@ actual fun RagDemoScreen() {
                             onQueryChange = { queryState.value = it },
                             onAskQuestion = {
                                 scope.launch {
-                                    if (isInitializedState.value && !isLoadingState.value && queryState.value.isNotBlank()) {
-                                        isLoadingState.value = true
-                                        try {
-                                            val (answer, embedding) = ragManager.processQuery(
-                                                queryState.value
-                                            )
-                                            answerState.value = answer
-                                            embeddingState.value = embedding
-                                        } catch (e: Exception) {
-                                            answerState.value =
-                                                "Error processing query: ${e.message}"
-                                        } finally {
-                                            isLoadingState.value = false
-                                        }
-                                    }
+                                    viewModel.processQuery()
                                 }
                             },
                             modifier = Modifier
@@ -181,28 +218,7 @@ actual fun RagDemoScreen() {
                             onSentence2Change = { sentence2State.value = it },
                             onCheckSimilarity = {
                                 scope.launch {
-                                    if (isInitializedState.value && !isLoadingState.value &&
-                                        sentence1State.value.isNotBlank() && sentence2State.value.isNotBlank()
-                                    ) {
-                                        isSimilarityCheckingState.value = true
-                                        isLoadingState.value = true
-                                        try {
-                                            val score = ragManager.calculateSimilarity(
-                                                sentence1State.value,
-                                                sentence2State.value
-                                            )
-                                            similarityScoreState.value = score
-                                        } catch (e: Exception) {
-                                            Log.e(
-                                                "MainActivity",
-                                                "Error calculating similarity: ${e.message}",
-                                                e
-                                            )
-                                        } finally {
-                                            isSimilarityCheckingState.value = false
-                                            isLoadingState.value = false
-                                        }
-                                    }
+                                    viewModel.calculateSimilarity()
                                 }
                             },
                             modifier = Modifier

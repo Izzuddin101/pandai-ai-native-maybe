@@ -1,5 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinCompile
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 plugins {
@@ -62,6 +63,8 @@ kotlin {
             implementation(libs.kotlin.result.coroutines)
             implementation(libs.androidx.navigation)
             implementation(libs.koin.core)
+            implementation(libs.koin.compose)
+            implementation(libs.koin.compose.viewmodel)
             api(libs.koin.annotations)
         }
         desktopMain.dependencies {
@@ -123,6 +126,10 @@ dependencies {
     add("kspIosSimulatorArm64", libs.koin.ksp.compiler)
 }
 
+ksp {
+    arg("KOIN_DEFAULT_MODULE","false")
+}
+
 compose.desktop {
     application {
         mainClass = "org.pandai.ai.MainKt"
@@ -150,3 +157,4 @@ tasks {
         }
     }
 }
+
