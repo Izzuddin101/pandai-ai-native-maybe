@@ -50,6 +50,7 @@ kotlin {
             implementation(libs.onnxruntime.android)
             implementation(libs.koin.android)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.mediapipe.tasks.genai)
         }
         commonMain.dependencies {
             implementation(compose.runtime)

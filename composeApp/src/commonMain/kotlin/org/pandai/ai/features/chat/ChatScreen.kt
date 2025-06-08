@@ -4,12 +4,12 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -34,30 +35,36 @@ class ChatViewModel(
 ) : ViewModel() {
     var state by mutableStateOf(ChatState())
 
-    init {
+    fun init(modelPath: String) {
         viewModelScope.launch {
             state = state.copy(isLoading = true)
-            chatService.init()
+            val result = chatService.init(modelPath)
+            if (result.isErr) {
+                state = state.copy(error = result.error)
+                Logger.e("Error: " + result.error)
+            }
             state = state.copy(isLoading = false)
         }
+    }
+
+    fun toggleContext(value: Boolean) {
+        state = state.copy(contextEnabled = value)
     }
 
     fun sendMessage(message: String) {
         if (message.isBlank()) return
 
-        viewModelScope.launch {
-            // Add user message
-            state = state.copy(
-                messages = state.messages + Message(
-                    content = message,
-                    isUser = true
-                ),
-                isLoading = true
-            )
+        state = state.copy(
+            messages = state.messages + Message(
+                content = message,
+                isUser = true
+            ),
+            isLoading = true
+        )
 
-            // Get AI response
-            val lastMessages = state.messages
-            chatService.sendMessage(message).collect { result ->
+        val lastMessages = state.messages
+        viewModelScope.launch {
+            chatService.sendMessage(message, state.contextEnabled).collect { result ->
                 state = state.copy(
                     messages = lastMessages + Message(
                         content = result.message ?: "...",
@@ -73,7 +80,9 @@ class ChatViewModel(
 
 data class ChatState(
     val messages: List<Message> = emptyList(),
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val contextEnabled: Boolean = true
 )
 
 data class Message(
@@ -84,16 +93,20 @@ data class Message(
 
 @Serializable
 data class ChatScreen(
-    val modelId: String
+    val modelPath: String
 )
 
 
 @Composable
-fun ChatScreen() {
+fun ChatScreen(param: ChatScreen) {
     val viewModel: ChatViewModel = koinViewModel()
+    LaunchedEffect(param.modelPath) {
+        viewModel.init(param.modelPath)
+    }
     ChatScreenContent(
         state = viewModel.state,
-        onSendMessage = viewModel::sendMessage
+        onSendMessage = viewModel::sendMessage,
+        toggleContext = viewModel::toggleContext
     )
 }
 
@@ -101,7 +114,8 @@ fun ChatScreen() {
 @Composable
 fun ChatScreenContent(
     state: ChatState,
-    onSendMessage: (String) -> Unit
+    onSendMessage: (String) -> Unit,
+    toggleContext: (Boolean) -> Unit,
 ) {
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -115,7 +129,23 @@ fun ChatScreenContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Chat") }
+                title = { Text("Chat") },
+                actions = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 16.dp)
+                    ) {
+                        Text(
+                            text = "Context",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Switch(
+                            checked = state.contextEnabled,
+                            onCheckedChange = { toggleContext(it) }
+                        )
+                    }
+                }
             )
         }
     ) { padding ->
@@ -124,6 +154,21 @@ fun ChatScreenContent(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            state.error?.let { error ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = error,
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
             ChatMessageList(
                 messages = state.messages,
                 isLoading = state.isLoading,
@@ -146,7 +191,7 @@ fun ChatScreenContent(
 fun ColumnScope.ChatMessageList(
     messages: List<Message>,
     isLoading: Boolean,
-    listState: androidx.compose.foundation.lazy.LazyListState
+    listState: LazyListState
 ) {
     LazyColumn(
         modifier = Modifier
@@ -201,10 +246,10 @@ fun ChatInput(
 @Composable
 fun MessageBubble(message: Message) {
     val textColor = if (message.isUser) MaterialTheme.colorScheme.onPrimary
-        else MaterialTheme.colorScheme.onSecondaryContainer
+    else MaterialTheme.colorScheme.onSecondaryContainer
     var isExpanded by remember { mutableStateOf(false) }
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-    
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -246,10 +291,11 @@ fun MessageBubble(message: Message) {
                     text = message.context.orEmpty(),
                     style = MaterialTheme.typography.bodySmall,
                     color = textColor.copy(alpha = 0.5f),
-                    modifier = Modifier.animateContentSize().heightIn(max = if (isExpanded) Dp.Unspecified else 64.dp),
+                    modifier = Modifier.animateContentSize()
+                        .heightIn(max = if (isExpanded) Dp.Unspecified else 64.dp),
                     onTextLayout = { textLayoutResult = it }
                 )
-                
+
                 if (textLayoutResult?.hasVisualOverflow == true || isExpanded) {
                     TextButton(
                         onClick = { isExpanded = !isExpanded },
@@ -302,7 +348,8 @@ fun ChatScreenPreview() {
                 ),
                 isLoading = false
             ),
-            onSendMessage = {}
+            onSendMessage = {},
+            toggleContext = { }
         )
     }
 }
@@ -320,7 +367,8 @@ fun ChatScreenLoadingPreview() {
                 ),
                 isLoading = true
             ),
-            onSendMessage = {}
+            onSendMessage = {},
+            toggleContext = {}
         )
     }
 }
@@ -339,9 +387,9 @@ fun MessageBubblePreview() {
                     "This is an AI response",
                     false,
                     "AI Assistant\nThis is a longer context that will definitely exceed three lines of text.\n" +
-                    "It contains multiple sentences and should demonstrate the height-based truncation.\n" +
-                    "The text will be cut off after approximately three lines worth of height.\n" +
-                    "This line should only be visible when expanded."
+                            "It contains multiple sentences and should demonstrate the height-based truncation.\n" +
+                            "The text will be cut off after approximately three lines worth of height.\n" +
+                            "This line should only be visible when expanded."
                 )
             )
             MessageBubble(Message("This is a message without context", true, null))

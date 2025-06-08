@@ -2,21 +2,19 @@ package org.pandai.ai.services
 
 import android.content.Context
 import android.util.Log
-import com.github.michaelbull.result.Result
 import com.github.michaelbull.result.getOrThrow
 import com.github.michaelbull.result.mapError
 import com.github.michaelbull.result.onFailure
 import com.github.michaelbull.result.runCatching
 import com.ml.shubham0204.sentence_embeddings.SentenceEmbedding
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.zip
 import kotlinx.coroutines.withContext
+import okio.FileSystem
+import okio.Path.Companion.toPath
+import okio.buffer
 import org.koin.core.annotation.Single
-import org.pandai.ai.services.ai_model.Model
-import org.pandai.ai.services.ai_model.getModelConfig
+import org.pandai.ai.services.sentence_embeding.Model
+import org.pandai.ai.services.sentence_embeding.getConfig
 import org.pandai.ai.services.vector.PandaiVector
 import java.io.File
 import kotlin.math.pow
@@ -29,8 +27,6 @@ import kotlin.math.sqrt
 @Single
 class RagService(
     private val vectorManager: PandaiVector,
-    private val context: Context,
-    private val llmService: PandaiLLMService
 ) {
     private val sentenceEmbedding = SentenceEmbedding()
     private var isInitialized = false
@@ -41,47 +37,32 @@ class RagService(
     suspend fun initialize() = withContext(Dispatchers.IO) {
         if (isInitialized) return@withContext
         runCatching {
+            val fileSystem = FileSystem.SYSTEM
             // Get model configuration from ModelConfig.kt
-            val modelConfig = getModelConfig(Model.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2)
+            val modelConfig = Model.PARAPHRASE_MULTILINGUAL_MINILM_L12_V2.getConfig()
+            val downloadPath = LLMDownloadPath.toPath().resolve(modelConfig.repo)
 
             // Check what's in the assets directory to debug
-            val assetsList = context.assets.list("")?.joinToString(", ") ?: "none"
-            val modelDirAssets =
-                context.assets.list("paraphrase-miniLM")?.joinToString(", ") ?: "none"
+            val assetsList = fileSystem.list(downloadPath)
 
             // Log the asset paths for debugging
             Log.d("RagManager", "Assets: $assetsList")
-            Log.d("RagManager", "paraphrase-miniLM assets: $modelDirAssets")
 
             // Load tokenizer from assets with the correct path
             val tokenizerPath = modelConfig.tokenizer
             val tokenizerBytes = runCatching {
-                context.assets.open(tokenizerPath).readBytes()
+                fileSystem.openReadOnly(downloadPath.resolve(tokenizerPath))
             }.onFailure {
                 Log.e("RagManager", "Error in initialize: ${it.message}", it)
             }.getOrThrow()
 
-            Log.d("RagManager", "Tokenizer loaded successfully: ${tokenizerBytes.size} bytes")
+            Log.d("RagManager", "Tokenizer loaded successfully: ${tokenizerBytes.size()} bytes")
 
             // Initialize sentence embeddings model with configuration and correct path
             val modelPath = modelConfig.modelFile
             Log.d("RagManager", "Attempting to load model from: $modelPath")
 
-            val modelFilepath = runCatching {
-                context.assets.open(modelPath).use {
-                    // Create a temporary file and copy the model from assets
-                    val modelFile = File(context.cacheDir, "model.onnx")
-                    modelFile.outputStream().use { output -> it.copyTo(output) }
-                    Log.d(
-                        "RagManager",
-                        "Model copied to: ${modelFile.absolutePath}, size: ${modelFile.length()}"
-                    )
-                    modelFile.absolutePath
-                }
-            }.mapError { e ->
-                Log.e("RagManager", "Error loading model file: ${e.message}", e)
-                Exception("Failed to load model file: ${e.message}", e)
-            }.getOrThrow()
+            val modelFilepath = downloadPath.resolve(modelPath).toString()
 
             Log.d(
                 "RagManager",
@@ -91,7 +72,7 @@ class RagService(
             runCatching {
                 sentenceEmbedding.init(
                     modelFilepath = modelFilepath,
-                    tokenizerBytes = tokenizerBytes,
+                    tokenizerBytes = tokenizerBytes.source().buffer().readByteArray(),
                     useTokenTypeIds = modelConfig.useTokenTypeIds,
                     outputTensorName = modelConfig.outputTensorName,
                     useFP16 = true,
@@ -234,19 +215,6 @@ class RagService(
                 0f
             }
         }
-
-    fun downloadSentenceEmbedding(model: Model): Flow<Result<Pair<String, Float>, String>> {
-        val modelConfig = getModelConfig(model)
-        return flow {
-            llmService.download(modelConfig.tokenizer, modelConfig.modelName).collect {
-                emit(it)
-            }
-            llmService.download(modelConfig.modelFile, modelConfig.modelName).collect {
-                emit(it)
-            }
-        }
-
-    }
 }
 
 /**
