@@ -2,17 +2,21 @@ package org.pandai.ai.services
 
 import android.content.Context
 import android.util.Log
+import com.github.michaelbull.result.Result
 import com.github.michaelbull.result.getOrThrow
 import com.github.michaelbull.result.mapError
 import com.github.michaelbull.result.onFailure
 import com.github.michaelbull.result.runCatching
 import com.ml.shubham0204.sentence_embeddings.SentenceEmbedding
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.zip
 import kotlinx.coroutines.withContext
 import org.koin.core.annotation.Single
 import org.pandai.ai.services.ai_model.Model
 import org.pandai.ai.services.ai_model.getModelConfig
-import org.pandai.ai.services.vector.ObjectBox
 import org.pandai.ai.services.vector.PandaiVector
 import java.io.File
 import kotlin.math.pow
@@ -26,6 +30,7 @@ import kotlin.math.sqrt
 class RagService(
     private val vectorManager: PandaiVector,
     private val context: Context,
+    private val llmService: PandaiLLMService
 ) {
     private val sentenceEmbedding = SentenceEmbedding()
     private var isInitialized = false
@@ -49,7 +54,7 @@ class RagService(
             Log.d("RagManager", "paraphrase-miniLM assets: $modelDirAssets")
 
             // Load tokenizer from assets with the correct path
-            val tokenizerPath = modelConfig.tokenizerAssetsFilepath
+            val tokenizerPath = modelConfig.tokenizer
             val tokenizerBytes = runCatching {
                 context.assets.open(tokenizerPath).readBytes()
             }.onFailure {
@@ -59,7 +64,7 @@ class RagService(
             Log.d("RagManager", "Tokenizer loaded successfully: ${tokenizerBytes.size} bytes")
 
             // Initialize sentence embeddings model with configuration and correct path
-            val modelPath = modelConfig.modelAssetsFilepath
+            val modelPath = modelConfig.modelFile
             Log.d("RagManager", "Attempting to load model from: $modelPath")
 
             val modelFilepath = runCatching {
@@ -229,6 +234,19 @@ class RagService(
                 0f
             }
         }
+
+    fun downloadSentenceEmbedding(model: Model): Flow<Result<Pair<String, Float>, String>> {
+        val modelConfig = getModelConfig(model)
+        return flow {
+            llmService.download(modelConfig.tokenizer, modelConfig.modelName).collect {
+                emit(it)
+            }
+            llmService.download(modelConfig.modelFile, modelConfig.modelName).collect {
+                emit(it)
+            }
+        }
+
+    }
 }
 
 /**

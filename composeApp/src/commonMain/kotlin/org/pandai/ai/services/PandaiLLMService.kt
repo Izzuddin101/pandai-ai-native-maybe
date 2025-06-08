@@ -9,14 +9,7 @@ import com.github.michaelbull.result.mapError
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.headers
-import io.ktor.client.request.prepareGet
-import io.ktor.client.request.url
-import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
-import io.ktor.client.utils.EmptyContent.contentLength
-import io.ktor.http.contentLength
-import io.ktor.http.isSuccess
-import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,8 +18,6 @@ import kotlinx.serialization.Serializable
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import okio.SYSTEM
-import okio.buffer
-import okio.use
 import org.koin.core.annotation.Single
 
 @Serializable
@@ -43,11 +34,12 @@ data class ModelFormat(
     val label: String,
 )
 
-expect val LLMDOwnloadPath: String
+expect val LLMDownloadPath: String
 
 @Single
 class PandaiLLMService(
     private val httpClient: HttpClient,
+    private val downloaderService: DownloaderService
 ) {
     private val modelFormatsData = mapOf(
         "litert-community/Gemma3-1B-IT" to ModelFormat(
@@ -58,7 +50,7 @@ class PandaiLLMService(
     private val _downloadedLLMs = MutableStateFlow<List<String>>(emptyList())
     val downloadedLLMs = _downloadedLLMs.asStateFlow()
 
-    private val downloadDestination = LLMDOwnloadPath.toPath()
+    private val downloadDestination = LLMDownloadPath.toPath()
 
     init {
         checkDownloadedModels()
@@ -68,7 +60,7 @@ class PandaiLLMService(
         try {
             val files = FileSystem.SYSTEM.list(downloadDestination)
             val ggufFiles = files
-                .filter { it.name.endsWith(".gguf") }
+                .filter { it.name.endsWith(".gguf") || it.name.endsWith(".task") || it.name.endsWith(".onnx") }
                 .map { it.name }
             _downloadedLLMs.value = ggufFiles
         } catch (e: Exception) {
@@ -109,10 +101,10 @@ class PandaiLLMService(
         return Ok(availableGGUFs)
     }
 
-    fun downloadModelWithProgress(
+    fun download(
         file: String,
         repoId: String,
-        accessToken: String?
+        accessToken: String? = null
     ): Flow<Result<Pair<String, Float>, String>> = flow {
         val modelFormat = modelFormatsData[repoId] ?: run {
             emit(Err("Invalid format"))
@@ -121,53 +113,18 @@ class PandaiLLMService(
 
         val downloadUrl = "https://huggingface.co/${modelFormat.label}/resolve/main/$file"
         val destPath = downloadDestination.resolve(file)
-        val fileSystem = FileSystem.SYSTEM
 
-        try {
-            httpClient.prepareGet(downloadUrl) {
-                headers {
-                    accessToken?.let { append("Authorization", "Bearer $it") }
-                }
-            }.execute { response ->
-                if (response.status.isSuccess()) {
-                    // Ensure the destination directory exists
-                    val parentDir = destPath.parent
-                    if (parentDir != null && !fileSystem.exists(parentDir)) {
-                        fileSystem.createDirectories(parentDir)
-                    }
-
-                    // Open a sink for writing the file
-                    fileSystem.sink(destPath).buffer().use { sink ->
-                        val byteReadChannel = response.bodyAsChannel()
-                        val buffer = ByteArray(8 * 1024) // 8 KB buffer
-                        val contentLength = response.contentLength() ?: -1L
-                        var bytesReadTotal = 0L
-
-                        while (!byteReadChannel.isClosedForRead) {
-                            val bytesRead = byteReadChannel.readAvailable(buffer)
-                            if (bytesRead > 0) {
-                                sink.write(buffer, 0, bytesRead)
-                                bytesReadTotal += bytesRead
-
-                                // Emit progress as a percentage
-                                if (contentLength > 0) {
-                                    val progress = (bytesReadTotal / contentLength.toFloat())
-                                    emit(Ok(destPath.toString() to progress))
-                                } else {
-                                    emit(Ok(destPath.toString() to -1f))
-                                }
-                            }
-                        }
-                    }
-
-                    // Emit 100% progress when done
-                    emit(Ok(destPath.toString() to 1f))
-                } else {
-                    emit(Err("Failed to download file. HTTP Status: ${response.status.value}"))
-                }
+        downloaderService.download(downloadUrl, destPath) {
+            headers {
+                accessToken?.let { append("Authorization", "Bearer $it") }
             }
-        } catch (error: Exception) {
-            emit(Err(error.message ?: "Unknown error"))
+        }.collect {
+            Logger.d("Downloading AI Model: $it")
+            if (it.isOk) {
+                emit(Ok(Pair(file, it.value.second)))
+            } else {
+                emit(it)
+            }
         }
     }
 

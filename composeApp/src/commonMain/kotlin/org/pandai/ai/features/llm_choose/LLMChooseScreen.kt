@@ -38,8 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import org.jetbrains.compose.ui.tooling.preview.Preview
@@ -52,7 +50,7 @@ import org.pandai.ai.services.PandaiLLMService
 @KoinViewModel
 class LLMChooseViewModel(
     private val llmService: PandaiLLMService,
-    private val dataStore: PandaiDataStore
+    private val dataStore: PandaiDataStore,
 ) : ViewModel() {
     var uiState by mutableStateOf<LLMChooseUiState>(LLMChooseUiState.Loading)
         private set
@@ -114,13 +112,13 @@ class LLMChooseViewModel(
         }
 
         viewModelScope.launch {
-            llmService.downloadModelWithProgress(file, repoId, dataStore.getToken())
+            llmService.download(file, repoId, accessToken)
                 .collect { result ->
                     when {
                         result.isOk -> {
                             val (file, progress) = result.value
                             downloadProgress = downloadProgress.toMutableMap().apply {
-                                put(file, progress * 100)
+                                put(file, progress)
                             }
                         }
 
@@ -385,17 +383,20 @@ private fun ModelFileCard(
                     style = MaterialTheme.typography.bodyLarge
                 )
                 Row {
-                    if (isDownloaded) {
+                    if (isDownloaded || downloadProgress == 1f) {
                         IconButton(onClick = onPlay) {
                             Icon(Icons.Default.PlayArrow, contentDescription = "Play")
                         }
                         IconButton(onClick = onDelete) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete")
                         }
-                    }
-                    if (downloadProgress < 1f && !isDownloaded) {
-                        IconButton(onClick = onDownload) {
-                            Icon(Icons.Default.Download, contentDescription = "Download")
+                    } else {
+                        if (downloadProgress != 0f) {
+                            CircularProgressIndicator(Modifier.size(24.dp))
+                        } else {
+                            IconButton(onClick = onDownload) {
+                                Icon(Icons.Default.Download, contentDescription = "Download")
+                            }
                         }
                     }
                 }
